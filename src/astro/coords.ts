@@ -5,8 +5,9 @@
 // The horizontal frame vector is (north, east, up).
 
 import { DEG, RAD, mat3, mul, norm360, rotZ, type Mat3, type Vec3 } from './math';
-import { precessionMatrix } from './precession';
-import { julianDate, localSiderealTime } from './time';
+import { celestialToIntermediate } from './cio';
+import { julianEpoch } from './precession';
+import { earthRotationAngle, julianDate } from './time';
 
 export interface Horizontal {
   alt: number;
@@ -40,21 +41,26 @@ export function equatorialToHorizontalMatrix(latDeg: number, lstDeg: number): Ma
   return mul(toHorizon, rotZ(lstDeg));
 }
 
-/** Everything needed to place J2000 catalogue positions on the sky for one instant and place. */
+/** Everything needed to place J2000 positions on the sky for one instant and place. */
 export interface SkyFrame {
+  /** Julian Date (UT1). */
   jd: number;
-  lst: number;
-  /** J2000 equatorial unit vector → (north, east, up). Includes precession. */
+  /** Julian epoch in years (2000.0 = J2000), for star motions and precession. */
+  epoch: number;
+  /** J2000 equatorial unit vector → (north, east, up), including long-term precession. */
   j2000ToHorizon: Mat3;
-  /** Equatorial-of-date unit vector → (north, east, up). For bodies computed "of date" (the Sun). */
-  ofDateToHorizon: Mat3;
 }
 
+/**
+ * The rotation from the J2000 frame to the local horizon: precession (Vondrák et al. 2011) and the
+ * Earth's rotation, via the celestial intermediate origin. The rotation about the pole is
+ * ERA + longitude in the intermediate frame, which takes the place of local sidereal time.
+ */
 export function skyFrame(unixMs: number, latDeg: number, lonDeg: number): SkyFrame {
   const jd = julianDate(unixMs);
-  const lst = localSiderealTime(jd, lonDeg);
-  const ofDateToHorizon = equatorialToHorizontalMatrix(latDeg, lst);
-  return { jd, lst, ofDateToHorizon, j2000ToHorizon: mul(ofDateToHorizon, precessionMatrix(jd)) };
+  const epoch = julianEpoch(jd);
+  const toLocal = equatorialToHorizontalMatrix(latDeg, earthRotationAngle(jd) + lonDeg);
+  return { jd, epoch, j2000ToHorizon: mul(toLocal, celestialToIntermediate(epoch)) };
 }
 
 /** Altitude/azimuth of a (north, east, up) unit vector. */

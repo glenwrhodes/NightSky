@@ -51,8 +51,20 @@
       <section>
         <label class="field">
           <span>Local time <em id="tzLabel"></em></span>
-          <input id="time" type="datetime-local" step="60" />
+          <input
+            id="time"
+            type="text"
+            inputmode="numeric"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="YYYY-MM-DD HH:MM"
+            aria-describedby="rangeNote"
+          />
         </label>
+        <p id="rangeNote" class="note">
+          Accurate from <strong id="rangeText"></strong>. Years before AD 1 count back from 0:
+          0 is 1 BC, −2829 is 2830 BC.
+        </p>
         <div class="row three">
           <button id="minusHour" type="button">−1 h</button>
           <button id="now" type="button">Now</button>

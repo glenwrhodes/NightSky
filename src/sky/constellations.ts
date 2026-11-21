@@ -117,7 +117,9 @@ export interface Figure {
   name: string;
   /** Pairs of stars to join. */
   segments: [Star, Star][];
-  /** Unit vector (J2000) at the middle of the figure, for its label. */
+  /** The figure's stars that belong to this constellation (not borrowed ones). */
+  members: Star[];
+  /** Unit vector (J2000, epoch 2000) at the middle of the figure, for its label. */
   labelVec: Vec3;
 }
 
@@ -142,6 +144,6 @@ export function resolveFigures(catalog: Catalog, defs: FigureDef[] = FIGURES): F
     }
     const sum: Vec3 = [0, 0, 0];
     for (const s of members) for (let k = 0; k < 3; k++) sum[k] += s.vec[k];
-    return { abbr: def.abbr, name: def.name, segments, labelVec: normalize(sum) };
+    return { abbr: def.abbr, name: def.name, segments, members: [...members], labelVec: normalize(sum) };
   });
 }

@@ -1,4 +1,10 @@
 // Local time at the observer's location, using the browser's IANA time-zone data (Intl).
+//
+// Years use astronomical numbering (year 0 = 1 BC, −1 = 2 BC) in the proleptic Gregorian calendar,
+// which is what JavaScript dates use. Before standard time zones existed (late 1800s), Intl gives
+// local mean time for the zone's city, e.g. −10:31:26 for Honolulu.
+
+import { utcMs } from '../astro/time';
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -8,6 +14,7 @@ function partsFormatter(tz: string): Intl.DateTimeFormat {
     f = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hourCycle: 'h23',
+      era: 'short',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -30,6 +37,7 @@ export function isValidTimeZone(tz: string): boolean {
 }
 
 export interface LocalParts {
+  /** Astronomical year: 0 = 1 BC, −1 = 2 BC. */
   year: number;
   month: number; // 1–12
   day: number;
@@ -40,39 +48,55 @@ export interface LocalParts {
 
 /** Wall-clock fields of an instant in a time zone. */
 export function localParts(unixMs: number, tz: string): LocalParts {
-  const p: Record<string, number> = {};
-  for (const { type, value } of partsFormatter(tz).formatToParts(new Date(unixMs))) {
-    if (type !== 'literal') p[type] = Number(value);
-  }
-  return { year: p.year, month: p.month, day: p.day, hour: p.hour, minute: p.minute, second: p.second };
+  const p: Record<string, string> = {};
+  for (const { type, value } of partsFormatter(tz).formatToParts(new Date(unixMs))) p[type] = value;
+  const eraYear = Number(p.year);
+  const bc = /^B/i.test(p.era ?? '');
+  return {
+    year: bc ? 1 - eraYear : eraYear,
+    month: Number(p.month),
+    day: Number(p.day),
+    hour: Number(p.hour),
+    minute: Number(p.minute),
+    second: Number(p.second),
+  };
 }
 
-/** UTC offset of a time zone at an instant, in minutes (east positive: Tokyo = +540). */
-export function offsetMinutes(tz: string, unixMs: number): number {
+/** UTC offset of a time zone at an instant, in seconds (east positive: Tokyo = +32400). */
+export function offsetSeconds(tz: string, unixMs: number): number {
   const l = localParts(unixMs, tz);
-  const asUtc = Date.UTC(l.year, l.month - 1, l.day, l.hour, l.minute, l.second);
+  const asUtc = utcMs(l.year, l.month, l.day, l.hour, l.minute, l.second);
   const whole = Math.floor(unixMs / 1000) * 1000;
-  return Math.round((asUtc - whole) / 60000);
+  return Math.round((asUtc - whole) / 1000);
+}
+
+/** UTC offset in minutes, rounded (for display and tests). */
+export function offsetMinutes(tz: string, unixMs: number): number {
+  return Math.round(offsetSeconds(tz, unixMs) / 60);
 }
 
 /** The instant at which the wall clock in `tz` reads the given fields. */
 export function localToUnixMs(l: LocalParts, tz: string): number {
-  const guess = Date.UTC(l.year, l.month - 1, l.day, l.hour, l.minute, l.second);
-  const first = guess - offsetMinutes(tz, guess) * 60000;
-  const second = guess - offsetMinutes(tz, first) * 60000;
-  return second;
+  const guess = utcMs(l.year, l.month, l.day, l.hour, l.minute, l.second);
+  const first = guess - offsetSeconds(tz, guess) * 1000;
+  return guess - offsetSeconds(tz, first) * 1000;
 }
 
-/** "2027-01-20T21:00" for an instant in a time zone: the value format of <input type=datetime-local>. */
-export function toLocalInputValue(unixMs: number, tz: string): string {
+/** "2027-01-20 21:00" (or "-2829-06-21 21:00") for an instant in a time zone. */
+export function formatLocalInput(unixMs: number, tz: string): string {
   const l = localParts(unixMs, tz);
-  const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${p(l.year, 4)}-${p(l.month)}-${p(l.day)}T${p(l.hour)}:${p(l.minute)}`;
+  const p = (n: number) => String(n).padStart(2, '0');
+  const y = l.year < 0 ? `-${String(-l.year).padStart(4, '0')}` : String(l.year).padStart(4, '0');
+  return `${y}-${p(l.month)}-${p(l.day)} ${p(l.hour)}:${p(l.minute)}`;
 }
 
-/** Parse "YYYY-MM-DDTHH:MM[:SS]" as a wall-clock time in `tz`. Returns null if malformed. */
+/**
+ * Parse "YYYY-MM-DD HH:MM[:SS]" (a "T" also works between date and time) as a wall-clock time in
+ * `tz`. The year may be negative (astronomical numbering) and have up to six digits.
+ * Returns null if malformed.
+ */
 export function parseLocal(value: string, tz: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+  const m = /^([+-]?\d{1,6})-(\d{1,2})-(\d{1,2})(?:[T ]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(value.trim());
   if (!m) return null;
   const [year, month, day, hour, minute, second] = m.slice(1).map((s) => Number(s ?? 0));
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return null;
@@ -95,4 +119,22 @@ export function zoneAbbreviation(unixMs: number, tz: string): string {
     new Date(unixMs),
   );
   return parts.find((p) => p.type === 'timeZoneName')?.value ?? tz;
+}
+
+const nameFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** "Wed 20 Jan 2027", "Sat 21 Jun 2830 BC", "Mon 3 Mar AD 500" in a time zone. */
+export function formatLocalDate(unixMs: number, tz: string): { date: string; time: string } {
+  const l = localParts(unixMs, tz);
+  let names = nameFormatters.get(tz);
+  if (!names) {
+    names = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', month: 'short' });
+    nameFormatters.set(tz, names);
+  }
+  const parts = names.formatToParts(new Date(unixMs));
+  const weekday = parts.find((p) => p.type === 'weekday')?.value ?? '';
+  const month = parts.find((p) => p.type === 'month')?.value ?? '';
+  const year = l.year <= 0 ? `${1 - l.year} BC` : l.year < 1000 ? `AD ${l.year}` : String(l.year);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return { date: `${weekday} ${l.day} ${month} ${year}`, time: `${p(l.hour)}:${p(l.minute)}` };
 }

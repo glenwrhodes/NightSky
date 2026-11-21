@@ -10,12 +10,14 @@ import { PLACES, findPlace } from './app/places';
 import { RATE_PRESETS, rateLabel, stepRate } from './app/rates';
 import { formatLatLon, parseHash, toHash, type AppState } from './app/state';
 import {
+  formatLocalDate,
+  formatLocalInput,
   isValidTimeZone,
   parseLocal,
   solarTimeZone,
-  toLocalInputValue,
   zoneAbbreviation,
 } from './app/timezone';
+import { MAX_TIME_MS, MAX_YEAR, MIN_TIME_MS, MIN_YEAR, formatYear } from './astro/time';
 import { designation, loadCatalog, type Star } from './sky/catalog';
 import { resolveFigures } from './sky/constellations';
 import { Renderer, type FrameInfo } from './render/renderer';
@@ -28,7 +30,10 @@ const canvas = $<HTMLCanvasElement>('sky');
 const renderer = new Renderer(canvas, catalog, figures);
 
 let state: AppState = parseHash(location.hash);
-const clock = new SimClock(state.t, state.rate, state.playing);
+// The clock never leaves the supported range; a time-lapse that reaches either end stops there.
+const clock = new SimClock(state.t, state.rate, state.playing, MIN_TIME_MS, MAX_TIME_MS);
+const RANGE_TEXT = `${formatYear(MIN_YEAR)} to ${formatYear(MAX_YEAR)}`;
+$('rangeText').textContent = RANGE_TEXT;
 let simMs = state.t;
 let hovered: Star | null = null;
 let lastFrame: FrameInfo | null = null;
@@ -89,6 +94,7 @@ function syncControls(): void {
 }
 
 function syncPlayControls(): void {
+  wasPlaying = clock.playing;
   el.play.textContent = clock.playing ? 'Pause' : 'Play';
   el.reverse.setAttribute('aria-pressed', String(clock.rate < 0));
 }
@@ -106,8 +112,9 @@ function saveHash(): void {
 }
 
 function setTime(ms: number): void {
-  clock.setTime(ms, realNow());
-  simMs = ms;
+  clock.setTime(ms, realNow()); // clamps to the supported range
+  simMs = clock.now(realNow());
+  lastTimeInput = '';
   saveHash();
 }
 
@@ -154,7 +161,11 @@ el.geo.addEventListener('click', () => {
 
 el.time.addEventListener('change', () => {
   const ms = parseLocal(el.time.value, state.tz);
+  el.time.classList.toggle('invalid', ms === null);
   if (ms !== null) setTime(ms);
+});
+el.time.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') el.time.blur();
 });
 el.minusHour.addEventListener('click', () => setTime(simMs - 3600_000));
 el.plusHour.addEventListener('click', () => setTime(simMs + 3600_000));
@@ -293,7 +304,7 @@ function showTooltip(x: number, y: number): void {
   strong.textContent = title;
   const line2 = document.createElement('div');
   line2.className = 'dim';
-  line2.textContent = `${sub} · magnitude ${s.mag.toFixed(2)}`;
+  line2.textContent = `${sub} · magnitude ${renderer.magnitudeOf(s).toFixed(2)}`;
   const line3 = document.createElement('div');
   line3.className = 'dim';
   line3.textContent = alt === null ? '' : `Altitude ${alt.toFixed(1)}°`;
@@ -305,25 +316,6 @@ function showTooltip(x: number, y: number): void {
 }
 
 // ---------- Caption ----------
-
-const dateFormats = new Map<string, Intl.DateTimeFormat>();
-function dateFormat(tz: string): Intl.DateTimeFormat {
-  let f = dateFormats.get(tz);
-  if (!f) {
-    f = new Intl.DateTimeFormat('en-GB', {
-      timeZone: tz,
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    });
-    dateFormats.set(tz, f);
-  }
-  return f;
-}
 
 let lastCaption = '';
 let lastTimeInput = '';
@@ -339,20 +331,22 @@ function updateReadouts(info: FrameInfo): void {
     el.tzLabel.textContent = `(${zoneAbbr})`;
   }
   if (state.caption) {
-    const parts = dateFormat(state.tz).formatToParts(new Date(simMs));
-    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-    const time = `${get('weekday')} ${get('day')} ${get('month')} ${get('year')} · ${get('hour')}:${get('minute')} ${zoneAbbr}`;
+    const { date, time: clockTime } = formatLocalDate(simMs, state.tz);
+    const time = `${date} · ${clockTime} ${zoneAbbr}`;
     const motion = clock.playing ? ` · ${clock.rate < 0 ? '◀' : '▶'} ${rateLabel(clock.rate)}` : '';
-    const caption = `${state.place}|${time}|${info.phase}${motion}`;
+    const atLimit =
+      simMs <= MIN_TIME_MS ? ` · earliest date shown (${RANGE_TEXT})` : simMs >= MAX_TIME_MS ? ` · latest date shown (${RANGE_TEXT})` : '';
+    const sub = `${info.phase}${motion}${atLimit}`;
+    const caption = `${state.place}|${time}|${sub}`;
     if (caption !== lastCaption) {
       lastCaption = caption;
       el.capPlace.textContent = state.place;
       el.capTime.textContent = time;
-      el.capSub.textContent = `${info.phase}${motion}`;
+      el.capSub.textContent = sub;
     }
   }
   if (state.ui && document.activeElement !== el.time) {
-    const v = toLocalInputValue(simMs, state.tz);
+    const v = formatLocalInput(simMs, state.tz);
     if (v !== lastTimeInput) {
       el.time.value = v;
       lastTimeInput = v;
@@ -370,8 +364,16 @@ declare global {
 }
 window.nightSky = { simTime: () => simMs, sunAltitude: () => lastFrame?.sunAlt ?? null };
 
+let wasPlaying = clock.playing;
+
 function frame(ts: DOMHighResTimeStamp): void {
   simMs = clock.now(ts);
+  if (clock.playing !== wasPlaying) {
+    // The time-lapse ran into the end of the supported range and stopped.
+    wasPlaying = clock.playing;
+    syncPlayControls();
+    saveHash();
+  }
   lastFrame = renderer.draw(simMs, {
     lat: state.lat,
     lon: state.lon,

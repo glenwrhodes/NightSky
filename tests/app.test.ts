@@ -3,17 +3,20 @@ import { SimClock } from '../src/app/clock';
 import { DEFAULT_STATE, parseHash, parseTime, toHash, type AppState } from '../src/app/state';
 import { PLACES } from '../src/app/places';
 import {
+  formatLocalDate,
+  formatLocalInput,
   isValidTimeZone,
+  localParts,
   localToUnixMs,
   offsetMinutes,
+  offsetSeconds,
   parseLocal,
   solarTimeZone,
-  toLocalInputValue,
 } from '../src/app/timezone';
 import { apply } from '../src/astro/math';
 import { horizonVecToAltAz, skyFrame } from '../src/astro/coords';
-import { sunPosition } from '../src/astro/sun';
-import { sphericalToVec } from '../src/astro/math';
+import { sunJ2000 } from '../src/astro/sun';
+import { julianDateTT, MAX_TIME_MS, MIN_TIME_MS, utcMs } from '../src/astro/time';
 import { loadCatalog } from '../src/sky/catalog';
 import { RATE_PRESETS, rateLabel, stepRate } from '../src/app/rates';
 
@@ -86,6 +89,38 @@ describe('time-lapse clock', () => {
     expect(c.now(9999)).toBe(500);
     expect(c.now(10999)).toBe(2500);
   });
+
+  it('stops at the end of the range and stays there', () => {
+    const c = new SimClock(0, 1000, true, -5_000, 50_000);
+    c.now(0);
+    expect(c.now(30)).toBe(30_000);
+    expect(c.now(60)).toBe(50_000); // would be 60 000
+    expect(c.playing).toBe(false);
+    expect(c.limit(1000)).toBe('end');
+    expect(c.now(5000)).toBe(50_000);
+    // Reverse and play: it leaves the limit again.
+    c.setRate(-1000, 5000);
+    c.setPlaying(true, 5000);
+    expect(c.now(5010)).toBe(40_000);
+    expect(c.limit(5010)).toBeNull();
+    // Running backwards it stops at the start.
+    expect(c.now(6000)).toBe(-5_000);
+    expect(c.limit(6000)).toBe('start');
+  });
+
+  it('clamps start times and jumps into the range', () => {
+    const c = new SimClock(-1e9, 1, false, 0, 100);
+    expect(c.now(0)).toBe(0);
+    c.setTime(1e9, 10);
+    expect(c.now(20)).toBe(100);
+  });
+
+  it('runs the whole supported range at the fastest rate and stops at AD 17,000', () => {
+    const c = new SimClock(Date.UTC(2027, 0, 1), 1e7, true, MIN_TIME_MS, MAX_TIME_MS);
+    c.now(0);
+    expect(c.now(1e12)).toBe(MAX_TIME_MS);
+    expect(c.playing).toBe(false);
+  });
 });
 
 describe('time zones', () => {
@@ -103,14 +138,39 @@ describe('time zones', () => {
     expect(parseLocal('2027-01-20T21:00', 'Pacific/Honolulu')).toBe(Date.UTC(2027, 0, 21, 7));
   });
 
-  it('formats datetime-local values in the zone', () => {
-    expect(toLocalInputValue(Date.UTC(2027, 0, 21, 7), 'Pacific/Honolulu')).toBe('2027-01-20T21:00');
-    expect(toLocalInputValue(Date.UTC(2026, 6, 5, 1, 30), 'America/New_York')).toBe('2026-07-04T21:30');
+  it('formats the time field in the zone', () => {
+    expect(formatLocalInput(Date.UTC(2027, 0, 21, 7), 'Pacific/Honolulu')).toBe('2027-01-20 21:00');
+    expect(formatLocalInput(Date.UTC(2026, 6, 5, 1, 30), 'America/New_York')).toBe('2026-07-04 21:30');
   });
 
   it('rejects malformed local times', () => {
     expect(parseLocal('2027-13-01T00:00', 'Etc/UTC')).toBeNull();
     expect(parseLocal('yesterday', 'Etc/UTC')).toBeNull();
+  });
+
+  it('handles BC years (astronomical numbering) in both directions', () => {
+    const t = utcMs(-2829, 6, 21, 12);
+    expect(localParts(t, 'Etc/UTC')).toMatchObject({ year: -2829, month: 6, day: 21, hour: 12 });
+    expect(formatLocalInput(t, 'Etc/UTC')).toBe('-2829-06-21 12:00');
+    expect(parseLocal('-2829-06-21 12:00', 'Etc/UTC')).toBe(t);
+    expect(parseLocal('0-01-01 00:00', 'Etc/UTC')).toBe(utcMs(0, 1, 1));
+    // A Monday: JD 687960.0, and (JD + 1.5) mod 7 = 1 (Meeus ch. 7).
+    expect(formatLocalDate(t, 'Etc/UTC')).toEqual({ date: 'Mon 21 Jun 2830 BC', time: '12:00' });
+    expect(formatLocalDate(utcMs(500, 3, 3), 'Etc/UTC').date).toBe('Wed 3 Mar AD 500');
+    expect(formatLocalDate(utcMs(14000, 1, 1), 'Etc/UTC').date).toMatch(/ 14000$/);
+  });
+
+  it('handles years 0–99 literally (not as 1900–1999)', () => {
+    expect(parseLocal('0050-06-01 00:00', 'Etc/UTC')).toBe(utcMs(50, 6, 1));
+    expect(formatLocalInput(utcMs(50, 6, 1), 'Etc/UTC')).toBe('0050-06-01 00:00');
+  });
+
+  it('uses local mean time before standard zones, to the second', () => {
+    // Honolulu used local mean time, −10:31:26, before 1896.
+    const t = utcMs(-2829, 6, 21, 12);
+    expect(offsetSeconds('Pacific/Honolulu', t)).toBe(-(10 * 3600 + 31 * 60 + 26));
+    const local = localParts(t, 'Pacific/Honolulu');
+    expect(localToUnixMs(local, 'Pacific/Honolulu')).toBe(t);
   });
 
   it('makes solar-time zones with the right (inverted) IANA sign', () => {
@@ -135,8 +195,7 @@ describe('URL state', () => {
   it('the default scene is dark, with Orion high in the south-east', () => {
     const s = DEFAULT_STATE;
     const f = skyFrame(s.t, s.lat, s.lon);
-    const sun = sunPosition(f.jd);
-    const sunAlt = horizonVecToAltAz(apply(f.ofDateToHorizon, sphericalToVec(sun.ra, sun.dec))).alt;
+    const sunAlt = horizonVecToAltAz(apply(f.j2000ToHorizon, sunJ2000(julianDateTT(f.jd)))).alt;
     expect(sunAlt).toBeLessThan(-18);
     const betelgeuse = loadCatalog().find('Alp Ori')!;
     const h = horizonVecToAltAz(apply(f.j2000ToHorizon, betelgeuse.vec));
@@ -171,6 +230,16 @@ describe('URL state', () => {
     expect(parseTime('1700000000000', 'Etc/UTC', 0)).toBe(1700000000000);
     expect(parseTime('now', 'Etc/UTC', 42)).toBe(42);
     expect(parseTime('garbage', 'Etc/UTC', 0)).toBeNull();
+    expect(parseTime('2026-02-30T00:00Z', 'Etc/UTC', 0)).toBe(Date.UTC(2026, 2, 2)); // rolls over like Date
+    expect(parseTime('2026-13-01T00:00Z', 'Etc/UTC', 0)).toBeNull();
+  });
+
+  it('parses BC and far-future times, ISO and local', () => {
+    expect(parseTime('-002829-06-21T12:00:00.000Z', 'Etc/UTC', 0)).toBe(utcMs(-2829, 6, 21, 12));
+    expect(parseTime('-2829-06-21T12:00Z', 'Etc/UTC', 0)).toBe(utcMs(-2829, 6, 21, 12));
+    expect(parseTime('+014000-01-01T00:00:00Z', 'Etc/UTC', 0)).toBe(utcMs(14000));
+    expect(parseTime('-2829-06-21T21:00', 'Etc/UTC', 0)).toBe(utcMs(-2829, 6, 21, 21));
+    expect(parseTime('14000-01-01T00:00', 'Etc/UTC', 0)).toBe(utcMs(14000));
   });
 
   it('ignores invalid values', () => {
@@ -184,6 +253,9 @@ describe('URL state', () => {
       { ...DEFAULT_STATE, playing: true, rate: -3600, viewAz: 42.5, grid: true, ui: false },
       parseHash('#lat=-33.9&lon=18.42&tz=Africa/Johannesburg&place=Cape%20Town&t=2026-05-01T20:00'),
       parseHash('#lat=10&lon=20'),
+      parseHash('#loc=london&t=-2829-06-21T21:00'),
+      parseHash('#loc=northpole&t=13600-03-01T00:00Z&rate=10000000&play=1'),
+      parseHash('#t=-30000-01-01T00:00Z'), // clamped to 13,000 BC
     ];
     for (const s of states) expect(parseHash(toHash(s))).toEqual(s);
   });

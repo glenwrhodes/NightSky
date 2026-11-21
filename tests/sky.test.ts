@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, separation, sphericalToVec, type Vec3 } from '../src/astro/math';
+import { apply, separation, sphericalToVec, vecToSpherical, type Vec3 } from '../src/astro/math';
+import { CatalogMotion, positionAt } from '../src/sky/motion';
 import { horizonVecToAltAz, skyFrame } from '../src/astro/coords';
 import { designation, loadCatalog } from '../src/sky/catalog';
 import { PROPER_NAMES } from '../src/sky/starNames';
@@ -99,6 +100,48 @@ describe('real sky checks', () => {
     const acrux = catalog.find('Alp Cru')!;
     for (let h = 0; h < 24; h++) {
       expect(altAzOf(acrux.vec, Date.UTC(2026, 3, 1, h), 51.5, 0).alt).toBeLessThan(0);
+    }
+  });
+});
+
+describe('star motions', () => {
+  it('no time, no motion', () => {
+    const s = catalog.find('Alp Boo')!;
+    const p = positionAt(s, 0);
+    expect(separation(p.vec, s.vec)).toBeLessThan(1e-9);
+    expect(p.dmag).toBeCloseTo(0, 12);
+  });
+
+  it('Arcturus moves 2.28″ a year (its catalogue proper motion)', () => {
+    const s = catalog.find('Alp Boo')!;
+    expect(separation(s.vec, positionAt(s, 100).vec) * 36).toBeCloseTo(Math.hypot(1.093, 1.998), 2);
+  });
+
+  it('moves in the right direction: Arcturus heads south, towards Virgo', () => {
+    const s = catalog.find('Alp Boo')!;
+    const [, dec] = vecToSpherical(positionAt(s, 10000).vec);
+    expect(dec).toBeLessThan(s.dec - 5);
+  });
+
+  it('nearby stars change brightness with distance; stars without a parallax do not', () => {
+    // Alpha Centauri approaches (−22 km/s), so it brightens; ~0.25 mag in 10,000 years.
+    const acen = catalog.find('Alp Cen')!;
+    const later = positionAt(acen, 10000).dmag;
+    expect(later).toBeLessThan(-0.1);
+    expect(later).toBeGreaterThan(-0.5);
+    const noPlx = catalog.stars.find((s) => s.plx === null && s.pmRA !== 0)!;
+    expect(positionAt(noPlx, 10000).dmag).toBe(0);
+  });
+
+  it('the renderer’s bulk motion matches the single-star version', () => {
+    const motion = new CatalogMotion(catalog.stars);
+    const vecs = new Float64Array(catalog.stars.length * 3);
+    const dmag = new Float32Array(catalog.stars.length);
+    motion.at(-12000, vecs, dmag);
+    for (const i of [0, 10, 500, 5000, catalog.stars.length - 1]) {
+      const p = positionAt(catalog.stars[i], -12000);
+      expect(separation(p.vec, [vecs[i * 3], vecs[i * 3 + 1], vecs[i * 3 + 2]])).toBeLessThan(1e-9);
+      expect(dmag[i]).toBeCloseTo(p.dmag, 5);
     }
   });
 });

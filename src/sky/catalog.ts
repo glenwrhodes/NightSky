@@ -15,13 +15,23 @@ export interface Star {
   /** Bayer letter as in the catalogue ("Alp", "Mu", "Bet1"), or "" if none. */
   bayer: string;
   con: string;
-  /** J2000 equatorial unit vector. */
+  /** J2000 equatorial unit vector, at epoch J2000.0. */
   vec: Vec3;
+  /** Proper motion in RA (× cos dec) and in Dec, arcsec per year. */
+  pmRA: number;
+  pmDE: number;
+  /** Parallax in arcsec, or null where the catalogue has none. */
+  plx: number | null;
+  /** Radial velocity in km/s, or null. */
+  rv: number | null;
   /** Proper name (Sirius, Vega, ...) if it has a well-known one. */
   name?: string;
 }
 
-type Row = [number, number, number, number, number | null, number, string, string];
+type Row = [
+  number, number, number, number, number | null, number, string, string,
+  number, number, number | null, number | null,
+];
 
 const GREEK: Record<string, string> = {
   Alp: 'α', Bet: 'β', Gam: 'γ', Del: 'δ', Eps: 'ε', Zet: 'ζ', Eta: 'η', The: 'θ',
@@ -51,8 +61,8 @@ export class Catalog {
 
   constructor(rows: Row[]) {
     this.stars = rows
-      .map(([hr, ra, dec, mag, bv, flamsteed, bayer, con]) => ({
-        hr, ra, dec, mag, bv, flamsteed, bayer, con, vec: sphericalToVec(ra, dec),
+      .map(([hr, ra, dec, mag, bv, flamsteed, bayer, con, pmRA, pmDE, plx, rv]) => ({
+        hr, ra, dec, mag, bv, flamsteed, bayer, con, pmRA, pmDE, plx, rv, vec: sphericalToVec(ra, dec),
       }))
       .sort((a, b) => a.mag - b.mag);
     // Stars are brightest-first, so when components share a designation the brightest wins.

@@ -5,6 +5,7 @@
 // controls the page clock gets the same frames every time.
 //
 // The clock anchors on the first reading, so the first frame drawn shows exactly the start time.
+// Simulated time never leaves [min, max]: at a limit the time-lapse stops there.
 
 export class SimClock {
   private anchorSim: number;
@@ -15,8 +16,14 @@ export class SimClock {
     /** Simulated seconds per real second; negative runs backwards. */
     private rateValue: number,
     private playingValue: boolean,
+    readonly min = -Infinity,
+    readonly max = Infinity,
   ) {
-    this.anchorSim = startUnixMs;
+    this.anchorSim = this.clamp(startUnixMs);
+  }
+
+  private clamp(t: number): number {
+    return Math.min(this.max, Math.max(this.min, t));
   }
 
   get rate(): number {
@@ -27,11 +34,27 @@ export class SimClock {
     return this.playingValue;
   }
 
-  /** Simulated time (Unix ms) at the given real time. */
+  /**
+   * Simulated time (Unix ms) at the given real time. If the time-lapse has run into a limit, it
+   * stops there (and stays stopped) so the sky holds at the end of the range.
+   */
   now(realMs: number): number {
     if (this.anchorReal === null) this.anchorReal = realMs;
     if (!this.playingValue) return this.anchorSim;
-    return this.anchorSim + (realMs - this.anchorReal) * this.rateValue;
+    const raw = this.anchorSim + (realMs - this.anchorReal) * this.rateValue;
+    const t = this.clamp(raw);
+    if (t !== raw) {
+      this.anchorSim = t;
+      this.anchorReal = realMs;
+      this.playingValue = false;
+    }
+    return t;
+  }
+
+  /** Which end of the range the clock is sitting at, if any. */
+  limit(realMs: number): 'start' | 'end' | null {
+    const t = this.now(realMs);
+    return t <= this.min ? 'start' : t >= this.max ? 'end' : null;
   }
 
   private reanchor(realMs: number): void {
@@ -40,7 +63,7 @@ export class SimClock {
   }
 
   setTime(unixMs: number, realMs: number): void {
-    this.anchorSim = unixMs;
+    this.anchorSim = this.clamp(unixMs);
     this.anchorReal = realMs;
   }
 
@@ -56,7 +79,7 @@ export class SimClock {
 
   /** Restart from a new time and settings on the next reading (used when the URL changes). */
   reset(startUnixMs: number, rate: number, playing: boolean): void {
-    this.anchorSim = startUnixMs;
+    this.anchorSim = this.clamp(startUnixMs);
     this.anchorReal = null;
     this.rateValue = rate;
     this.playingValue = playing;

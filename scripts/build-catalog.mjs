@@ -42,6 +42,12 @@ function parseLine(line) {
   const sup = col(line, 11, 11).trim();
   const con = col(line, 12, 14).trim();
 
+  // Motions: proper motion in RA already includes cos(dec) (Arcturus −1.093"/yr, as Hipparcos).
+  const pmRA = num(col(line, 149, 154)) ?? 0; // arcsec/yr
+  const pmDE = num(col(line, 155, 160)) ?? 0; // arcsec/yr
+  const plx = num(col(line, 162, 166)); // arcsec, trigonometric or dynamical; often blank
+  const rv = num(col(line, 167, 170)); // km/s
+
   const ra = (raH + raM / 60 + raS / 3600) * 15;
   const dec = decSign * (decD + decM / 60 + decS / 3600);
   return [
@@ -53,6 +59,10 @@ function parseLine(line) {
     flamsteed,
     bayer ? bayer + sup : '',
     con,
+    pmRA,
+    pmDE,
+    plx !== null && plx > 0 ? plx : null,
+    rv,
   ];
 }
 
@@ -82,6 +92,10 @@ const stars = text
 check(stars, 2491, { ra: 101.2875, dec: -16.7161, vmag: -1.46, bayer: 'Alp', con: 'CMa' }); // Sirius
 check(stars, 2061, { ra: 88.7929, dec: 7.4071, vmag: 0.5, bayer: 'Alp', con: 'Ori' }); // Betelgeuse
 check(stars, 424, { ra: 37.9529, dec: 89.2642, vmag: 2.02, bayer: 'Alp', con: 'UMi' }); // Polaris
+const arcturus = stars.find((r) => r[0] === 5340);
+if (JSON.stringify(arcturus.slice(8)) !== JSON.stringify([-1.093, -1.998, 0.09, -5])) {
+  throw new Error(`Motion layout check failed for Arcturus: ${JSON.stringify(arcturus)}`);
+}
 if (stars.length < 9000) throw new Error(`Only ${stars.length} stars parsed`);
 
 const out = {
@@ -89,7 +103,8 @@ const out = {
     'Yale Bright Star Catalogue, 5th Revised Ed. (Hoffleit & Warren 1991), CDS VizieR V/50, via ' +
     SOURCE,
   epoch: 'J2000',
-  fields: ['hr', 'raDeg', 'decDeg', 'vmag', 'bv', 'flamsteed', 'bayer', 'con'],
+  fields: ['hr', 'raDeg', 'decDeg', 'vmag', 'bv', 'flamsteed', 'bayer', 'con', 'pmRA', 'pmDE', 'plx', 'rv'],
+  units: { pmRA: 'arcsec/yr, includes cos(dec)', pmDE: 'arcsec/yr', plx: 'arcsec', rv: 'km/s' },
   stars,
 };
 mkdirSync(dirname(OUT), { recursive: true });

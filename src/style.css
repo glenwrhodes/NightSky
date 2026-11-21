@@ -193,8 +193,24 @@ body.ui-hidden .tooltip {
   grid-template-columns: 1fr 1fr 1fr;
 }
 
+.note {
+  margin: -2px 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+
+.note strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+input.invalid {
+  border-color: rgba(255, 120, 110, 0.7);
+}
+
 input[type='number'],
-input[type='datetime-local'],
+input[type='text'],
 select {
   width: 100%;
   padding: 6px 8px;

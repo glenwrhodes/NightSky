@@ -3,8 +3,10 @@
 // The hash alone is enough to set up a shot, for example:
 //   #loc=maunakea&t=2027-01-20T21:00&rate=600&play=1&ui=0
 // `t` is either an ISO time with Z or an offset, a wall-clock time at the place ("2027-01-20T21:00"),
-// or "now". See README.md for every parameter.
+// Unix milliseconds, or "now". Years may be negative ("-2829-06-21T21:00" is 2830 BC). Times outside
+// the supported range (13,000 BC – AD 17,000) are clamped to it. See README.md for every parameter.
 
+import { clampTime, utcMs } from '../astro/time';
 import { findPlace, PLACES } from './places';
 import { isValidTimeZone, parseLocal, solarTimeZone } from './timezone';
 
@@ -76,14 +78,25 @@ function parseNumber(v: string | null, min: number, max: number): number | null 
   return Number.isFinite(n) && n >= min && n <= max ? n : null;
 }
 
-/** Parse a time parameter. `nowMs` is only consulted for "now". */
+const ISO_WITH_ZONE =
+  /^([+-]?\d{1,6})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\s*(Z|[+-]\d{2}:?\d{2})$/i;
+
+/**
+ * Parse a time parameter. `nowMs` is only consulted for "now". Years may be negative
+ * (astronomical numbering: 0 = 1 BC, −2829 = 2830 BC). Out-of-range times are not clamped here.
+ */
 export function parseTime(v: string, tz: string, nowMs: number): number | null {
   const s = v.trim();
   if (s.toLowerCase() === 'now') return nowMs;
-  if (/^-?\d+$/.test(s)) return Number(s); // Unix milliseconds
-  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
-    const ms = Date.parse(s);
-    return Number.isNaN(ms) ? null : ms;
+  if (/^-?\d{7,}$/.test(s)) return Number(s); // Unix milliseconds (7+ digits, so years aren't mistaken)
+  const m = ISO_WITH_ZONE.exec(s);
+  if (m) {
+    const [y, mo, d, h, mi, sec] = m.slice(1, 7).map((x) => Number(x ?? 0));
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || sec > 59) return null;
+    const ms = Number((m[7] ?? '0').padEnd(3, '0'));
+    const zone = m[8].toUpperCase();
+    const offsetMin = zone === 'Z' ? 0 : (zone[0] === '-' ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(-2)));
+    return utcMs(y, mo, d, h, mi, sec) + ms - offsetMin * 60_000;
   }
   return parseLocal(s, tz);
 }
@@ -113,7 +126,8 @@ export function parseHash(hash: string, nowMs: number = Date.now()): AppState {
   const t = q.get('t');
   if (t) {
     const ms = parseTime(t, s.tz, nowMs);
-    if (ms !== null) s.t = ms;
+    // Times outside 13,000 BC – AD 17,000 are pulled to the nearest end of the range.
+    if (ms !== null && Number.isFinite(ms)) s.t = clampTime(ms);
   }
 
   const rate = parseNumber(q.get('rate'), -MAX_RATE, MAX_RATE);

@@ -5,6 +5,9 @@
   "description": "Night Sky planetarium: the real sky for any place and time.",
   "author": "Tiny Moosh Games Inc.",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "prestart": "node scripts/ensure-deps.mjs",
     "start": "vite",

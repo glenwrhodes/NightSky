@@ -13,7 +13,11 @@ we credit it here as the CDS asks.
 Rebuild it with `npm run build:catalog`. The script checks the byte layout against Sirius,
 Betelgeuse and Polaris before writing anything.
 
-Fields per star, in order: `hr, raDeg, decDeg, vmag, bv, flamsteed, bayer, con`.
+Fields per star, in order: `hr, raDeg, decDeg, vmag, bv, flamsteed, bayer, con, pmRA, pmDE, plx, rv`.
+Proper motions are in arcsec per year (pmRA already includes cos dec, as in Hipparcos). The parallax
+is in arcsec (null where the catalogue has none, about two-thirds of the stars). The radial velocity
+is in km/s. These drive the stars' own motions over the app's 30,000-year range
+(`src/sky/motion.ts`).
 
 Not taken from any other project:
 

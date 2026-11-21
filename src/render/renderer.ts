@@ -1,11 +1,13 @@
 // Draws the dome on a 2D canvas: sky colour, twilight glow, grid, constellation figures, stars,
 // the Sun, labels and the compass ring.
 
-import { apply, sphericalToVec, type Vec3 } from '../astro/math';
+import { apply, normalize, type Vec3 } from '../astro/math';
 import { skyFrame } from '../astro/coords';
-import { skyPhase, sunPosition, type SkyPhase } from '../astro/sun';
+import { skyPhase, sunJ2000, type SkyPhase } from '../astro/sun';
+import { julianDateTT } from '../astro/time';
 import type { Catalog, Star } from '../sky/catalog';
 import type { Figure } from '../sky/constellations';
+import { CatalogMotion } from '../sky/motion';
 import { fitDome, makeVecProjector, project, type DomeView, type Point } from '../sky/projection';
 import {
   darkness,
@@ -70,7 +72,11 @@ function bucketOf(bv: number | null): number {
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly stars: Star[];
+  private readonly motion: CatalogMotion;
+  /** Star directions (J2000 frame) and magnitude changes at `vecEpoch`. */
   private readonly vecs: Float64Array;
+  private readonly dmag: Float32Array;
+  private vecEpoch = NaN;
   private readonly bucket: Uint8Array;
   private readonly index = new Map<Star, number>();
   private readonly sprites: HTMLCanvasElement[] = [];
@@ -92,14 +98,15 @@ export class Renderer {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.stars = catalog.stars;
     const n = this.stars.length;
+    this.motion = new CatalogMotion(this.stars);
     this.vecs = new Float64Array(n * 3);
+    this.dmag = new Float32Array(n);
     this.bucket = new Uint8Array(n);
     this.px = new Float32Array(n);
     this.py = new Float32Array(n);
     this.palt = new Float32Array(n);
     this.pvis = new Float32Array(n);
     this.stars.forEach((s, i) => {
-      this.vecs.set(s.vec, i * 3);
       this.bucket[i] = bucketOf(s.bv);
       this.index.set(s, i);
     });
@@ -133,8 +140,12 @@ export class Renderer {
     const scale = R / 500;
 
     const frame = skyFrame(unixMs, o.lat, o.lon);
-    const sun = sunPosition(frame.jd);
-    const sunVec = apply(frame.ofDateToHorizon, sphericalToVec(sun.ra, sun.dec));
+    // Stars move by at most a few arcseconds a year, so only recompute after ~9 hours of sky time.
+    if (!(Math.abs(frame.epoch - this.vecEpoch) < 1e-3)) {
+      this.motion.at(frame.epoch - 2000, this.vecs, this.dmag);
+      this.vecEpoch = frame.epoch;
+    }
+    const sunVec = apply(frame.j2000ToHorizon, sunJ2000(julianDateTT(frame.jd)));
     const projectVec = makeVecProjector(view);
     const sunPt: Point = { x: 0, y: 0 };
     const sunAlt = projectVec(sunVec, sunPt);
@@ -202,7 +213,7 @@ export class Renderer {
       this.pvis[i] = 0;
       const alt = this.palt[i];
       if (alt < 0) continue;
-      const mag = this.stars[i].mag + extinction(alt);
+      const mag = this.stars[i].mag + this.dmag[i] + extinction(alt);
       const a = starAlpha(mag, limit);
       if (a <= 0) continue;
       this.pvis[i] = a;
@@ -246,10 +257,16 @@ export class Renderer {
     return best < 0 ? null : this.stars[best];
   }
 
-  /** Altitude/azimuth info for a star from the last frame. */
+  /** A star's altitude in the last frame drawn. */
   altitudeOf(star: Star): number | null {
     const i = this.index.get(star);
     return i === undefined ? null : this.palt[i];
+  }
+
+  /** A star's magnitude at the date of the last frame (it changes as nearby stars move). */
+  magnitudeOf(star: Star): number {
+    const i = this.index.get(star);
+    return i === undefined ? star.mag : star.mag + this.dmag[i];
   }
 
   private drawGrid(view: DomeView, dark: number): void {
@@ -324,7 +341,13 @@ export class Renderer {
     ctx.fillStyle = `rgba(150,180,235,${0.6 * dark})`;
     const { cx, cy } = this.view;
     for (const f of this.figures) {
-      const alt = projectVec(apply(m, f.labelVec), p);
+      // Label at the middle of the figure's own stars, where they are at this date.
+      const sum: Vec3 = [0, 0, 0];
+      for (const s of f.members) {
+        const j = this.index.get(s)! * 3;
+        for (let k = 0; k < 3; k++) sum[k] += this.vecs[j + k];
+      }
+      const alt = projectVec(apply(m, normalize(sum)), p);
       if (alt < 2) continue;
       const text = f.name.toUpperCase();
       const w = ctx.measureText(text).width;
