@@ -1,0 +1,23 @@
+{
+  "name": "night-sky",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Night Sky planetarium: the real sky for any place and time.",
+  "author": "Tiny Moosh Games Inc.",
+  "type": "module",
+  "scripts": {
+    "prestart": "node scripts/ensure-deps.mjs",
+    "start": "vite",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:catalog": "node scripts/build-catalog.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

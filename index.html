@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Night Sky · Planetarium</title>
+    <meta name="description" content="Night Sky: a planetarium showing the real sky for any place and time." />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23060a1a' stroke='%23587ab8' stroke-width='2'/%3E%3Ccircle cx='22' cy='24' r='2.5' fill='%23fff'/%3E%3Ccircle cx='40' cy='18' r='1.8' fill='%23cde'/%3E%3Ccircle cx='44' cy='38' r='2.2' fill='%23fda'/%3E%3Ccircle cx='28' cy='44' r='1.5' fill='%23fff'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <canvas id="sky" aria-label="Planetarium dome showing the sky"></canvas>
+
+    <div id="caption" class="caption" aria-live="off">
+      <div class="caption-place" id="capPlace"></div>
+      <div class="caption-time" id="capTime"></div>
+      <div class="caption-sub" id="capSub"></div>
+    </div>
+
+    <div id="tooltip" class="tooltip" hidden></div>
+
+    <aside id="panel" class="panel" aria-label="Controls">
+      <header>
+        <div>
+          <h1>Night Sky</h1>
+          <p>The real sky for any place and time</p>
+        </div>
+        <button id="collapse" type="button" class="collapse-btn" aria-expanded="true">Hide</button>
+      </header>
+
+      <section>
+        <label class="field">
+          <span>Place</span>
+          <select id="place"></select>
+        </label>
+        <div class="row">
+          <label class="field">
+            <span>Latitude</span>
+            <input id="lat" type="number" step="0.0001" min="-90" max="90" />
+          </label>
+          <label class="field">
+            <span>Longitude</span>
+            <input id="lon" type="number" step="0.0001" min="-180" max="180" />
+          </label>
+        </div>
+        <button id="geo" type="button" class="wide">Use my location</button>
+      </section>
+
+      <section>
+        <label class="field">
+          <span>Local time <em id="tzLabel"></em></span>
+          <input id="time" type="datetime-local" step="60" />
+        </label>
+        <div class="row three">
+          <button id="minusHour" type="button">−1 h</button>
+          <button id="now" type="button">Now</button>
+          <button id="plusHour" type="button">+1 h</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Time-lapse</h2>
+        <div class="row">
+          <button id="play" type="button" class="primary">Play</button>
+          <button id="reverse" type="button" aria-pressed="false">Reverse</button>
+        </div>
+        <label class="field">
+          <span>Speed</span>
+          <select id="rate"></select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Show</h2>
+        <label class="check"><input id="lines" type="checkbox" /> Constellation lines</label>
+        <label class="check"><input id="conNames" type="checkbox" /> Constellation names</label>
+        <label class="check"><input id="starNames" type="checkbox" /> Star names</label>
+        <label class="check"><input id="grid" type="checkbox" /> Altitude grid</label>
+        <label class="check"><input id="captionToggle" type="checkbox" /> Place and time caption</label>
+      </section>
+
+      <footer>
+        <p class="hint">Drag to turn the dome · Space plays · H hides controls</p>
+        <p class="copyright">© 2026 Tiny Moosh Games Inc.</p>
+      </footer>
+    </aside>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
