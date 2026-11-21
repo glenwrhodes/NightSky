@@ -5,10 +5,22 @@
 // alone sets up a shot; see README.md.
 
 import './style.css';
-import { SimClock } from './app/clock';
+import { SimClock, type Stepping } from './app/clock';
 import { PLACES, findPlace } from './app/places';
 import { RATE_PRESETS, rateLabel, stepRate } from './app/rates';
 import { formatLatLon, parseHash, toHash, type AppState } from './app/state';
+import {
+  SPS_PRESETS,
+  STEP_PRESETS,
+  formatStep,
+  makeStepper,
+  nextStepPreset,
+  parseStep,
+  sameStep,
+  stepDays,
+  stepLabel,
+  type Step,
+} from './app/stepping';
 import {
   formatLocalDate,
   formatLocalInput,
@@ -30,8 +42,16 @@ const canvas = $<HTMLCanvasElement>('sky');
 const renderer = new Renderer(canvas, catalog, figures);
 
 let state: AppState = parseHash(location.hash);
+
+/** "Same time each night" stepping for the current place, step and speed. */
+function makeStepping(): Stepping {
+  return { perSecond: state.sps, at: makeStepper(state.tz, state.step) };
+}
+const steppingFor = (s: AppState) => (s.mode === 'nightly' ? makeStepping() : null);
+
 // The clock never leaves the supported range; a time-lapse that reaches either end stops there.
 const clock = new SimClock(state.t, state.rate, state.playing, MIN_TIME_MS, MAX_TIME_MS);
+clock.reset(state.t, state.rate, state.playing, steppingFor(state)); // anchors on the first frame
 const RANGE_TEXT = `${formatYear(MIN_YEAR)} to ${formatYear(MAX_YEAR)}`;
 $('rangeText').textContent = RANGE_TEXT;
 let simMs = state.t;
@@ -55,6 +75,12 @@ const el = {
   play: $<HTMLButtonElement>('play'),
   reverse: $<HTMLButtonElement>('reverse'),
   rate: $<HTMLSelectElement>('rate'),
+  rateField: $('rateField'),
+  modeContinuous: $<HTMLButtonElement>('modeContinuous'),
+  modeNightly: $<HTMLButtonElement>('modeNightly'),
+  stepFields: $('stepFields'),
+  step: $<HTMLSelectElement>('step'),
+  sps: $<HTMLSelectElement>('sps'),
   lines: $<HTMLInputElement>('lines'),
   conNames: $<HTMLInputElement>('conNames'),
   starNames: $<HTMLInputElement>('starNames'),
@@ -80,6 +106,31 @@ function fillRateOptions(): void {
   el.rate.value = String(RATE_PRESETS.find((p) => Math.abs(p.value - r) < 1e-6)?.value ?? r);
 }
 
+function fillStepOptions(): void {
+  el.step.replaceChildren();
+  const abs: Step = { count: Math.abs(state.step.count), unit: state.step.unit };
+  const options = [...STEP_PRESETS];
+  if (!options.some((p) => sameStep(p, abs))) options.push(abs);
+  options.sort((a, b) => stepDays(a) - stepDays(b));
+  for (const p of options) el.step.add(new Option(stepLabel(p), formatStep(p)));
+  el.step.value = formatStep(abs);
+}
+
+function fillSpsOptions(): void {
+  el.sps.replaceChildren();
+  const values = SPS_PRESETS.includes(state.sps) ? SPS_PRESETS : [...SPS_PRESETS, state.sps].sort((a, b) => a - b);
+  for (const v of values) el.sps.add(new Option(String(v), String(v)));
+  el.sps.value = String(state.sps);
+}
+
+function syncModeControls(): void {
+  const nightly = state.mode === 'nightly';
+  el.modeContinuous.setAttribute('aria-pressed', String(!nightly));
+  el.modeNightly.setAttribute('aria-pressed', String(nightly));
+  el.rateField.hidden = nightly;
+  el.stepFields.hidden = !nightly;
+}
+
 /** Push state into every control (after loading or a URL change). */
 function syncControls(): void {
   el.place.value = state.loc;
@@ -87,6 +138,9 @@ function syncControls(): void {
   el.lon.value = String(state.lon);
   for (const k of TOGGLES) el[k].checked = state[k];
   fillRateOptions();
+  fillStepOptions();
+  fillSpsOptions();
+  syncModeControls();
   syncPlayControls();
   document.body.classList.toggle('ui-hidden', !state.ui);
   el.captionBox.hidden = !state.caption;
@@ -96,7 +150,12 @@ function syncControls(): void {
 function syncPlayControls(): void {
   wasPlaying = clock.playing;
   el.play.textContent = clock.playing ? 'Pause' : 'Play';
-  el.reverse.setAttribute('aria-pressed', String(clock.rate < 0));
+  el.reverse.setAttribute('aria-pressed', String(backwards()));
+}
+
+/** Whether the active time-lapse runs backwards. */
+function backwards(): boolean {
+  return state.mode === 'nightly' ? state.step.count < 0 : clock.rate < 0;
 }
 
 let hashTimer = 0;
@@ -120,6 +179,8 @@ function setTime(ms: number): void {
 
 function setLocation(lat: number, lon: number, tz: string, place: string, loc = ''): void {
   Object.assign(state, { lat, lon, tz, place, loc });
+  // Nightly steps keep the clock time of the new place's zone from here on.
+  if (state.mode === 'nightly') clock.setStepping(makeStepping(), realNow());
   el.place.value = loc;
   el.lat.value = String(lat);
   el.lon.value = String(lon);
@@ -182,9 +243,45 @@ function setRate(rate: number): void {
   syncPlayControls();
   saveHash();
 }
+function setMode(mode: AppState['mode']): void {
+  state.mode = mode;
+  clock.setStepping(steppingFor(state), realNow()); // continues from the current time
+  syncModeControls();
+  syncPlayControls();
+  saveHash();
+}
+
+/** Change the nightly step and/or speed, continuing from the current step. */
+function setStep(step: Step, sps = state.sps): void {
+  state.step = step;
+  state.sps = sps;
+  if (state.mode === 'nightly') clock.setStepping(makeStepping(), realNow());
+  fillStepOptions();
+  fillSpsOptions();
+  syncPlayControls();
+  saveHash();
+}
+
+function reverse(): void {
+  if (state.mode === 'nightly') setStep({ ...state.step, count: -state.step.count });
+  else setRate(-clock.rate);
+}
+
+function faster(dir: 1 | -1): void {
+  if (state.mode === 'nightly') setStep(nextStepPreset(state.step, dir));
+  else setRate(stepRate(clock.rate, dir));
+}
+
 el.play.addEventListener('click', togglePlay);
-el.reverse.addEventListener('click', () => setRate(-clock.rate));
+el.reverse.addEventListener('click', reverse);
 el.rate.addEventListener('change', () => setRate(Number(el.rate.value) * (clock.rate < 0 ? -1 : 1)));
+el.modeContinuous.addEventListener('click', () => setMode('continuous'));
+el.modeNightly.addEventListener('click', () => setMode('nightly'));
+el.step.addEventListener('change', () => {
+  const s = parseStep(el.step.value);
+  if (s) setStep({ count: s.count * (state.step.count < 0 ? -1 : 1), unit: s.unit });
+});
+el.sps.addEventListener('change', () => setStep(state.step, Number(el.sps.value)));
 
 for (const k of TOGGLES) {
   el[k].addEventListener('change', () => {
@@ -230,9 +327,10 @@ window.addEventListener('keydown', (e) => {
     case 's': case 'S': flip('starNames'); break;
     case 'g': case 'G': flip('grid'); break;
     case 'c': case 'C': flip('caption'); break;
-    case 'r': case 'R': setRate(-clock.rate); break;
-    case ']': setRate(stepRate(clock.rate, 1)); break;
-    case '[': setRate(stepRate(clock.rate, -1)); break;
+    case 'r': case 'R': reverse(); break;
+    case 'm': case 'M': setMode(state.mode === 'nightly' ? 'continuous' : 'nightly'); break;
+    case ']': faster(1); break;
+    case '[': faster(-1); break;
     case 'ArrowLeft': state.viewAz = (state.viewAz + 345) % 360; saveHash(); break;
     case 'ArrowRight': state.viewAz = (state.viewAz + 15) % 360; saveHash(); break;
     default:
@@ -245,7 +343,7 @@ window.addEventListener('keydown', (e) => {
 // URL edited by hand (or by a recording script): load it as a fresh shot.
 window.addEventListener('hashchange', () => {
   state = parseHash(location.hash);
-  clock.reset(state.t, state.rate, state.playing);
+  clock.reset(state.t, state.rate, state.playing, steppingFor(state));
   simMs = state.t;
   syncControls();
 });
@@ -333,9 +431,20 @@ function updateReadouts(info: FrameInfo): void {
   if (state.caption) {
     const { date, time: clockTime } = formatLocalDate(simMs, state.tz);
     const time = `${date} · ${clockTime} ${zoneAbbr}`;
-    const motion = clock.playing ? ` · ${clock.rate < 0 ? '◀' : '▶'} ${rateLabel(clock.rate)}` : '';
-    const atLimit =
-      simMs <= MIN_TIME_MS ? ` · earliest date shown (${RANGE_TEXT})` : simMs >= MAX_TIME_MS ? ` · latest date shown (${RANGE_TEXT})` : '';
+    const arrow = backwards() ? '◀' : '▶';
+    const motion = !clock.playing
+      ? ''
+      : state.mode === 'nightly'
+        ? ` · ${arrow} same time, every ${stepLabel(state.step)}`
+        : ` · ${arrow} ${rateLabel(clock.rate)}`;
+    // At an end of the range: either the time-lapse ran into it, or the URL asked for a time beyond it.
+    const atStart = clock.stoppedAt === 'start' || simMs <= MIN_TIME_MS;
+    const atEnd = clock.stoppedAt === 'end' || simMs >= MAX_TIME_MS;
+    const atLimit = atStart
+      ? ` · earliest date shown (${RANGE_TEXT})`
+      : atEnd
+        ? ` · latest date shown (${RANGE_TEXT})`
+        : '';
     const sub = `${info.phase}${motion}${atLimit}`;
     const caption = `${state.place}|${time}|${sub}`;
     if (caption !== lastCaption) {

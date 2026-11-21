@@ -78,10 +78,30 @@
           <button id="play" type="button" class="primary">Play</button>
           <button id="reverse" type="button" aria-pressed="false">Reverse</button>
         </div>
-        <label class="field">
+        <div class="segmented" role="group" aria-label="Time-lapse mode">
+          <button id="modeContinuous" type="button" aria-pressed="true">Continuous</button>
+          <button id="modeNightly" type="button" aria-pressed="false">Same time each night</button>
+        </div>
+        <label class="field" id="rateField">
           <span>Speed</span>
           <select id="rate"></select>
         </label>
+        <div id="stepFields" hidden>
+          <div class="row">
+            <label class="field">
+              <span>Step</span>
+              <select id="step"></select>
+            </label>
+            <label class="field">
+              <span>Steps per second</span>
+              <select id="sps"></select>
+            </label>
+          </div>
+          <p class="note">
+            The clock time stays put and the date steps. Year steps keep the calendar date but wobble
+            by about 1° at leap days; day steps such as 12,053 days (≈ 33 years) are smooth.
+          </p>
+        </div>
       </section>
 
       <section>
@@ -89,7 +109,7 @@
         <label class="check"><input id="lines" type="checkbox" /> Constellation lines</label>
         <label class="check"><input id="conNames" type="checkbox" /> Constellation names</label>
         <label class="check"><input id="starNames" type="checkbox" /> Star names</label>
-        <label class="check"><input id="grid" type="checkbox" /> Altitude grid</label>
+        <label class="check"><input id="grid" type="checkbox" /> Altitude grid and celestial pole</label>
         <label class="check"><input id="captionToggle" type="checkbox" /> Place and time caption</label>
       </section>
 

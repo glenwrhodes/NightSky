@@ -2,12 +2,14 @@
 //
 // The hash alone is enough to set up a shot, for example:
 //   #loc=maunakea&t=2027-01-20T21:00&rate=600&play=1&ui=0
+//   #loc=northpole&t=2026-12-21T00:00Z&mode=nightly&step=100y&sps=10&play=1   (same time each night)
 // `t` is either an ISO time with Z or an offset, a wall-clock time at the place ("2027-01-20T21:00"),
 // Unix milliseconds, or "now". Years may be negative ("-2829-06-21T21:00" is 2830 BC). Times outside
 // the supported range (13,000 BC – AD 17,000) are clamped to it. See README.md for every parameter.
 
 import { clampTime, utcMs } from '../astro/time';
 import { findPlace, PLACES } from './places';
+import { DEFAULT_SPS, DEFAULT_STEP, MAX_SPS, MIN_SPS, formatStep, parseStep, type Step } from './stepping';
 import { isValidTimeZone, parseLocal, solarTimeZone } from './timezone';
 
 export interface AppState {
@@ -22,6 +24,12 @@ export interface AppState {
   /** Time-lapse rate: simulated seconds per real second (negative runs backwards). */
   rate: number;
   playing: boolean;
+  /** Continuous time-lapse, or "same time each night" (the clock time stays, the date steps). */
+  mode: 'continuous' | 'nightly';
+  /** Date step for nightly mode; a negative count steps backwards. */
+  step: Step;
+  /** Steps per real second in nightly mode. */
+  sps: number;
   /** Azimuth shown at the bottom of the dome. */
   viewAz: number;
   lines: boolean;
@@ -44,6 +52,9 @@ export const DEFAULT_STATE: Readonly<AppState> = {
   t: Date.UTC(2027, 0, 21, 7, 0, 0), // 2027-01-20 21:00 HST (UTC−10)
   rate: 600,
   playing: false,
+  mode: 'continuous',
+  step: DEFAULT_STEP,
+  sps: DEFAULT_SPS,
   viewAz: 180,
   lines: true,
   conNames: true,
@@ -132,6 +143,12 @@ export function parseHash(hash: string, nowMs: number = Date.now()): AppState {
 
   const rate = parseNumber(q.get('rate'), -MAX_RATE, MAX_RATE);
   if (rate !== null) s.rate = rate;
+  const mode = q.get('mode');
+  if (mode === 'nightly' || mode === 'continuous') s.mode = mode;
+  const step = parseStep(q.get('step') ?? '');
+  if (step) s.step = step;
+  const sps = parseNumber(q.get('sps'), MIN_SPS, MAX_SPS);
+  if (sps !== null) s.sps = sps;
   const az = parseNumber(q.get('az'), -360, 720);
   if (az !== null) s.viewAz = ((az % 360) + 360) % 360;
 
@@ -160,6 +177,9 @@ export function toHash(s: AppState): string {
   }
   q.set('t', new Date(Math.round(s.t)).toISOString().replace('.000Z', 'Z'));
   q.set('rate', String(round(s.rate, 4)));
+  q.set('mode', s.mode);
+  q.set('step', formatStep(s.step));
+  q.set('sps', String(round(s.sps, 3)));
   q.set('play', s.playing ? '1' : '0');
   q.set('az', String(round(s.viewAz, 1)));
   for (const [key, field] of Object.entries(BOOL_KEYS)) {

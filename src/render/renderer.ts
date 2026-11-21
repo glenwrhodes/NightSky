@@ -186,7 +186,7 @@ export class Renderer {
       ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
     }
 
-    if (o.grid) this.drawGrid(view, dark);
+    if (o.grid) this.drawGrid(view, dark, o.lat);
 
     // Project every star once; lines and hit testing reuse the results.
     const out: Point = { x: 0, y: 0 };
@@ -269,9 +269,36 @@ export class Renderer {
     return i === undefined ? star.mag : star.mag + this.dmag[i];
   }
 
-  private drawGrid(view: DomeView, dark: number): void {
+  private drawGrid(view: DomeView, dark: number, lat: number): void {
     const { ctx } = this;
     const { cx, cy, radius: R } = view;
+
+    // The celestial pole of date: the point the sky turns around. It always sits at altitude =
+    // latitude, due north (south pole due south for southern observers); precession moves the
+    // stars past it.
+    if (Math.abs(lat) > 0.5) {
+      const p = lat > 0 ? project(lat, 0, view) : project(-lat, 180, view);
+      const r = 7;
+      ctx.strokeStyle = `rgba(255,200,130,${0.55 + 0.3 * dark})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.moveTo(p.x - r * 1.8, p.y);
+      ctx.lineTo(p.x - r * 0.5, p.y);
+      ctx.moveTo(p.x + r * 0.5, p.y);
+      ctx.lineTo(p.x + r * 1.8, p.y);
+      ctx.moveTo(p.x, p.y - r * 1.8);
+      ctx.lineTo(p.x, p.y - r * 0.5);
+      ctx.moveTo(p.x, p.y + r * 0.5);
+      ctx.lineTo(p.x, p.y + r * 1.8);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,205,150,${0.5 + 0.3 * dark})`;
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(lat > 0 ? 'North celestial pole' : 'South celestial pole', p.x + r * 2.2, p.y + r * 1.6);
+    }
+
     ctx.strokeStyle = `rgba(130,160,215,${0.1 + 0.1 * dark})`;
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 5]);

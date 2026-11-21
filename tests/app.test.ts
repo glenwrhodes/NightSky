@@ -96,16 +96,16 @@ describe('time-lapse clock', () => {
     expect(c.now(30)).toBe(30_000);
     expect(c.now(60)).toBe(50_000); // would be 60 000
     expect(c.playing).toBe(false);
-    expect(c.limit(1000)).toBe('end');
+    expect(c.stoppedAt).toBe('end');
     expect(c.now(5000)).toBe(50_000);
     // Reverse and play: it leaves the limit again.
     c.setRate(-1000, 5000);
     c.setPlaying(true, 5000);
     expect(c.now(5010)).toBe(40_000);
-    expect(c.limit(5010)).toBeNull();
+    expect(c.stoppedAt).toBeNull();
     // Running backwards it stops at the start.
     expect(c.now(6000)).toBe(-5_000);
-    expect(c.limit(6000)).toBe('start');
+    expect(c.stoppedAt).toBe('start');
   });
 
   it('clamps start times and jumps into the range', () => {

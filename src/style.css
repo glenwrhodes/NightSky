@@ -254,6 +254,31 @@ button.wide {
   width: 100%;
 }
 
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 0;
+  margin: 8px 0;
+}
+
+.segmented button {
+  border-radius: 0;
+  font-size: 12px;
+}
+
+.segmented button:first-child {
+  border-radius: 7px 0 0 7px;
+}
+
+.segmented button:last-child {
+  border-radius: 0 7px 7px 0;
+  border-left: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
 .check {
   display: flex;
   align-items: center;

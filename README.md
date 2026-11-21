@@ -10,6 +10,9 @@ A planetarium in the browser: the real sky for any place and time, shown on a do
   (Thuban in 2800 BC, Polaris today, Vega around AD 13,600)
 - Constellation figures for 43 constellations, with names
 - Time-lapse forwards or backwards, from real time to a sidereal day per second
+- "Same time each night" time-lapse: the clock time stays put and the date steps (a day to a
+  thousand years per step), so the stars drift through the seasons, or through the centuries until
+  the pole moves
 - The sky brightens through twilight into day, with the Sun's glow on the horizon
 
 TypeScript, HTML canvas and Vite. No runtime dependencies and no network needed.
@@ -36,10 +39,11 @@ Drag the dome to turn it. Hover a star for its name, magnitude and altitude.
 | Key | Action |
 | --- | --- |
 | Space | Play / pause the time-lapse |
-| `[` / `]` | Slower / faster |
+| M | Switch between continuous and "same time each night" |
+| `[` / `]` | Slower / faster (continuous), or smaller / bigger steps (same time each night) |
 | R | Reverse direction |
 | H | Hide / show the controls |
-| L, N, S, G, C | Toggle lines, constellation names, star names, grid, caption |
+| L, N, S, G, C | Toggle lines, constellation names, star names, grid (with the celestial pole), caption |
 | ← / → | Turn the dome 15° |
 
 ## Setting up a shot from the URL
@@ -59,10 +63,13 @@ http://localhost:5173/#loc=maunakea&t=2027-01-20T18:30&rate=600&play=1&ui=0
 | `tz` | IANA time zone for local times, such as `Asia/Tokyo`. Custom locations default to whole-hour solar time | the place's zone |
 | `place` | Name shown in the caption | the place's name |
 | `t` | Start time: local wall-clock time at the place (`2027-01-20T21:00`), ISO with `Z` or an offset, Unix milliseconds, or `now`. Years may be negative: `-2829-06-21T21:00` is 2830 BC (year 0 = 1 BC). Times outside 13,000 BC – AD 17,000 are moved to the nearest end of that range | `2027-01-20T21:00` |
-| `rate` | Time-lapse speed in simulated seconds per real second; negative runs backwards (`600` = 10 min/s, `3600` = 1 hour/s) | `600` |
+| `rate` | Continuous time-lapse speed in simulated seconds per real second; negative runs backwards (`600` = 10 min/s, `3600` = 1 hour/s) | `600` |
+| `mode` | `continuous`, or `nightly` for "same time each night" | `continuous` |
+| `step` | Nightly mode: date step, a whole number of `d` (days), `w` (weeks), `mo` (months) or `y` (years): `1d`, `1mo`, `100y`, `12053d`. Negative steps go back in time (`-100y`) | `1d` |
+| `sps` | Nightly mode: steps per second, 0.1 to 120 | `10` |
 | `play` | `1` to start the time-lapse running | `0` |
 | `az` | Compass direction at the bottom of the dome, degrees (`180` = South, `0` = North) | `180` |
-| `lines`, `names`, `stars`, `grid`, `caption` | `1` / `0`: constellation lines, constellation names, star names, altitude grid, place-and-time caption | `1`,`1`,`1`,`0`,`1` |
+| `lines`, `names`, `stars`, `grid`, `caption` | `1` / `0`: constellation lines, constellation names, star names, altitude grid with the celestial pole marked, place-and-time caption | `1`,`1`,`1`,`0`,`1` |
 | `ui` | `0` hides the control panel (for recording) | `1` |
 
 Invalid values are ignored and fall back to the defaults. Changing the hash on a loaded page restarts
@@ -80,6 +87,37 @@ Example shots across the range:
 #loc=northpole&t=-2799-12-21T00:00Z&ui=0        Thuban at the zenith, 2800 BC
 #loc=northpole&t=13600-12-21T00:00Z&ui=0        Vega near the zenith, AD 13,600
 ```
+
+### Same time each night
+
+In this mode the local clock time stays put and the date steps forward (or back) by `step`, `sps`
+times a second. Each step is a separate moment, so the sky moves in steps rather than smoothly.
+With one-day steps the stars drift through the seasons. With steps of decades or centuries the
+seasons stay put and precession takes over: the pole moves through the stars.
+
+- **Calendar steps** (`1mo`, `1y`, `100y`, …) keep the calendar date: Jan 31 + 1 month is Feb 28,
+  and Feb 29 + 1 year is Feb 28. Every step is counted from where stepping started, so nothing
+  drifts.
+- **The leap-year wobble.** The number of days in N calendar years changes with leap days, and at a
+  fixed clock time each extra or missing day turns the whole sky by about 1°. Year steps therefore
+  wobble: for 10-year steps the sky zigzags about 2° every step.
+- **Fixed-day steps are smooth.** `12053d` is 33 Gregorian years to within 0.003 days. It turns the
+  sky by exactly the same amount every step and keeps the calendar date to within a day over
+  10,000 years. It is in the controls as "12,053 days (≈ 33 years)".
+- **Limits.** Stepping stops on its last step inside 13,000 BC – AD 17,000, with the same "latest /
+  earliest date shown" note. It runs off the page clock like the continuous time-lapse: step
+  k = ⌊elapsed seconds × `sps`⌋, so the same moment shows the same step at any frame rate.
+
+**The pole moving from Polaris to Vega** (about 15 s, then it holds at AD 16,975):
+
+```
+http://localhost:5173/#loc=northpole&t=2026-12-21T00:00Z&mode=nightly&step=12053d&sps=30&play=1&grid=1&ui=0
+```
+
+This is the sky from the North Pole at midnight UTC each 21 December, 33 years per step at 30 steps
+a second. The zenith is the celestial pole, marked by the grid's pole cross. Polaris starts on it,
+swings away after AD 2100, and Vega comes within 5.7° around AD 13,600 (about 11.7 s in). It is
+polar night throughout. `tests/stepping.test.ts` checks all of this.
 
 ### Recording with a headless browser
 
@@ -103,7 +141,8 @@ src/
   sky/      the star catalogue, star motions, star names, constellation figures, the dome projection
   render/   look.ts: star colour from B−V, sizes, sky colour and limiting magnitude by Sun altitude,
             atmospheric extinction; renderer.ts: draws the dome on a canvas
-  app/      time-lapse clock, URL state, time zones, places, speeds
+  app/      time-lapse clock (continuous and stepped), "same time each night" date stepping,
+            URL state, time zones, places, speeds
   main.ts   wires it together: controls, keyboard, drag and hover, frame loop
 tests/      Vitest unit tests; tests/reference/ holds the old IAU 1976 model for cross-checks
 ```
