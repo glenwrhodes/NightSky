@@ -4,6 +4,8 @@
 
 A planetarium in the browser: the real sky for any place and time, shown on a dome.
 
+Live at **https://nightsky.glenrhodes.com**.
+
 - 9,096 naked-eye stars from the Yale Bright Star Catalogue, with true colours and brightness
 - Alt-azimuth view for any latitude, longitude and moment from **13,000 BC to AD 17,000**, with
   long-term precession and the stars' own motions, so the pole stars change as they really do
@@ -18,8 +20,14 @@ A planetarium in the browser: the real sky for any place and time, shown on a do
 TypeScript, HTML canvas and Vite. No runtime dependencies and no network needed.
 
 Continuous integration: every push and pull request runs the typecheck, the unit tests and the
-production build on GitHub Actions (`.github/workflows/ci.yml`). It only checks; nothing is
-released or deployed.
+production build on GitHub Actions (`.github/workflows/ci.yml`). It only checks; it doesn't deploy.
+
+## Hosting
+
+The live site is the Dokku app `nightsky` on Glen's Dokku server. Deploy
+with `git push dokku main`. The Node buildpack runs `heroku-postbuild` (the production build), and the
+`Procfile` serves `dist/` with `server.js`, a zero-dependency static server with a `/healthz` check
+(`npm run serve` runs it locally after `npm run build`). No database, storage or secrets.
 
 ## Start it
 

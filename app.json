@@ -1,0 +1,8 @@
+{
+  "name": "nightsky",
+  "healthchecks": {
+    "web": [
+      { "type": "startup", "name": "web ready", "path": "/healthz", "attempts": 10, "wait": 3, "timeout": 5 }
+    ]
+  }
+}

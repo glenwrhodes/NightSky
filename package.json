@@ -6,7 +6,7 @@
   "author": "Tiny Moosh Games Inc.",
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "22.x"
   },
   "scripts": {
     "prestart": "node scripts/ensure-deps.mjs",
@@ -16,7 +16,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build:catalog": "node scripts/build-catalog.mjs"
+    "build:catalog": "node scripts/build-catalog.mjs",
+    "heroku-postbuild": "npm run build",
+    "serve": "node server.js"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
