@@ -22,12 +22,11 @@ TypeScript, HTML canvas and Vite. No runtime dependencies and no network needed.
 Continuous integration: every push and pull request runs the typecheck, the unit tests and the
 production build on GitHub Actions (`.github/workflows/ci.yml`). It only checks; it doesn't deploy.
 
-## Hosting
+## Production
 
-The live site is the Dokku app `nightsky` on Glen's Dokku server. Deploy
-with `git push dokku main`. The Node buildpack runs `heroku-postbuild` (the production build), and the
-`Procfile` serves `dist/` with `server.js`, a zero-dependency static server with a `/healthz` check
-(`npm run serve` runs it locally after `npm run build`). No database, storage or secrets.
+`npm run build` writes the site to `dist/`, and `npm run serve` serves it with `server.js`, a
+zero-dependency static server (gzip, long-lived caching for hashed assets, a `/healthz` check). The
+`Procfile` and `heroku-postbuild` script let any Node buildpack host build and run it.
 
 ## Start it
 
